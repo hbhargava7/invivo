@@ -1,0 +1,9 @@
+# Conda environment
+# conda env create -f environment.yml --force -v
+
+name: invivo
+
+dependencies:
+  # put python dependencies in `requirements.txt` and use the `config_conda_env.sh` script.
+  - python=3.12
+  - pip
