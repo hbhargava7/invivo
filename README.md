@@ -10,6 +10,18 @@ github: https://github.com/hbhargava/invivo
 
 This notebook demonstrates the use of the `invivo` package to automatically analyze study log data.
 
+## Example Output
+
+## Automatic ingestion of an Excel file exported from the study log
+
+# embed image named `example_output.png`
+
+![Example Output](example_output_1.png)
+
+# Example automatic plot generation
+
+![Example Plot](example_output_2.png)
+
 ## Setup
 
 Setup is easiest with Anaconda. Make sure you have Anaconda installed (https://www.anaconda.com/download).
