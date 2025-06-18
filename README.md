@@ -16,11 +16,11 @@ This notebook demonstrates the use of the `invivo` package to automatically anal
 
 # embed image named `example_output.png`
 
-![Example Output](example_output_1.png)
+![Example Output](examples/example_output_1.png)
 
 # Example automatic plot generation
 
-![Example Plot](example_output_2.png)
+![Example Plot](examples/example_output_2.png)
 
 ## Setup
 
