@@ -19,6 +19,9 @@ class InVivoAnalyzer:
             raise FileNotFoundError('Data file not found: %s' % self.data_path)
 
         print('Initializing InVivoAnalyzer with data from: %s' % self.data_path)
+        print('-'*80)
+        print('Finding relevant sheets in the data file...')
+        print('-'*80)
 
         # Get the sheet names and analyze relevant sheets
         sheet_names = get_excel_sheet_names(self.data_path)
@@ -36,7 +39,9 @@ class InVivoAnalyzer:
                 print(f'found tumor volume data in sheet `{sheet_name}`')
                 tumor_volume_sheets.append(sheet_name)
 
+        print('-'*80)
         print('Automatically parsing data from the sheets mentioned above.')
+        print('-'*80)
 
         self.master_data = pd.DataFrame()
 
@@ -76,10 +81,12 @@ class InVivoAnalyzer:
         # Extract Group ID from Animal ID
         self.master_data['Group ID'] = self.master_data['Animal ID'].str.split('-').str[0].astype(int)
 
+        print('-'*80)
         print('Found the following groups with the following sizes:')
         print(self.groups_summary_df())
 
         print('You can assign names to the groups by calling `self.set_group_names()` with an ordered list of group names.')
+        print('-'*80)
     
     def set_study_start_date(self, date: datetime.datetime):
         """
@@ -92,6 +99,10 @@ class InVivoAnalyzer:
         """
         Set the names of the groups.
         """
+        print('-'*80)
+        print('Setting group names (InVivoAnalyzer.set_group_names())...')
+        print('-'*80)
+
         if len(group_names) != len(self.master_data['Group ID'].unique()):
             raise ValueError('Number of group names must match the number of groups')
         
@@ -101,7 +112,7 @@ class InVivoAnalyzer:
         for original_id, new_name in zip(original_group_ids, group_names):
             print('renaming group %s to %s' % (original_id, new_name))
             self.master_data.loc[self.master_data['Group ID'] == original_id, 'Group ID'] = new_name
-
+        print('-'*80)
         print('The groups have been renamed to:')
         print(self.groups_summary_df())
     
@@ -127,9 +138,17 @@ class InVivoAnalyzer:
         })
         return df
     
-    def plot_survival_curves(self, ax=None):
+    def plot_survival_curves(self, ax=None, fractional=False, figsize=(6, 5)):
         """
         Plot the survival curves.
+
+        Parameters
+        ----------
+        ax: matplotlib.axes.Axes
+            The axes to plot the survival curves on. If None, a new figure and axes will be created.
+        fractional: bool
+            If True, the survival curves will be plotted as fractional survival (i.e. the proportion of animals surviving at each timepoint).
+            If False, the survival curves will be plotted as the number of animals surviving at each timepoint.
 
         """
         mortality_data = self.master_data[self.master_data['Data Type'] == 'Mortality']
@@ -154,17 +173,23 @@ class InVivoAnalyzer:
                     if animal_id not in mortalities_to_date['Animal ID'].unique():
                         n_alive_at_timepoint += 1
 
-                data.append({'Group': group_id, 'Days Since Start': timepoint, 'N Surviving': n_alive_at_timepoint})
+                if fractional:
+                    data.append({'Group': group_id, 'Days Since Start': timepoint, 'Fraction Surviving': n_alive_at_timepoint / len(group_data['Animal ID'].unique())})
+                else:
+                    data.append({'Group': group_id, 'Days Since Start': timepoint, 'N Surviving': n_alive_at_timepoint})
 
         df_survival = pd.DataFrame(data)
 
         if ax is None:
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=figsize)
         
         # Iterate over each group and plot the survival curve as a step plot
         for group in df_survival['Group'].unique():
             _df = df_survival[df_survival['Group'] == group]
-            plt.step(_df['Days Since Start'], _df['N Surviving'], where='post', label="%s" %  group)
+            if fractional:
+                plt.step(_df['Days Since Start'], _df['Fraction Surviving'], where='post', label="%s" %  group)
+            else:
+                plt.step(_df['Days Since Start'], _df['N Surviving'], where='post', label="%s" %  group)
 
         # Rotate the axis labels and set align to right
         plt.xticks(rotation=45, ha='right')
@@ -174,21 +199,24 @@ class InVivoAnalyzer:
 
         # Set labels and title
         plt.xlabel('Days Since Study Start')
-        plt.ylabel('N Surviving')
+        if fractional:
+            plt.ylabel('Fraction Surviving')
+        else:
+            plt.ylabel('N Surviving')
         plt.ylim(bottom=0)
 
-        # Show the plot
         plt.tight_layout()
 
-    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None):
+        if fig is not None:
+            return fig, ax
+
+    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None, figsize=(6, 5)):
         """
         Plot data by group.
 
         """
         if ax is None:
-            fig, ax = plt.subplots()
-
-        fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=figsize)
 
         df = self.master_data[self.master_data['Data Type'] == measurement_type]
 
@@ -207,8 +235,10 @@ class InVivoAnalyzer:
         ax.set_ylabel(measurement_type)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-        
-    def subplot_data_bygroup(self, measurement_type: str, control_group_id:str=None):
+        if fig is not None:
+            return fig, ax
+
+    def subplot_data_bygroup(self, measurement_type: str, control_group_id:str=None, figsize=None):
         """
         """
 
@@ -224,7 +254,10 @@ class InVivoAnalyzer:
             # No control group, unique subplots for each group
             groups_to_plot = groups_to_plot[groups_to_plot != control_group_id]
 
-        fig, axs = plt.subplots(1, len(groups_to_plot), sharex=True, sharey=True, figsize=(4*len(groups_to_plot), 4))
+        if figsize is None:
+            figsize = (4*len(groups_to_plot), 4)
+
+        fig, axs = plt.subplots(1, len(groups_to_plot), sharex=True, sharey=True, figsize=figsize)
 
         control_df = None
         if control_group_id is not None:
@@ -260,7 +293,8 @@ class InVivoAnalyzer:
 
             plt.tight_layout()
 
-
+        if fig is not None:
+            return fig, axs 
 
         
 
