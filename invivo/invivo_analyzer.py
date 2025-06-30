@@ -238,7 +238,7 @@ class InVivoAnalyzer:
         if fig is not None:
             return fig, ax
 
-    def subplot_data_bygroup(self, measurement_type: str, control_group_id:str=None, figsize=None):
+    def subplot_data_bygroup(self, measurement_type: str, control_group_id:str=None, figsize=None, individual_traces_for_control=True):
         """
         """
 
@@ -268,9 +268,10 @@ class InVivoAnalyzer:
 
             # Plot control if relevant
             if control_group_id is not None:
-                for mouse in control_df['Animal ID'].unique():
-                    mouse_df = df[df['Animal ID'] == mouse]
-                    ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='black', alpha=0.1)
+                if individual_traces_for_control:
+                    for mouse in control_df['Animal ID'].unique():
+                        mouse_df = df[df['Animal ID'] == mouse]
+                        ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='black', alpha=0.1)
 
                 mean_df = control_df[['Days Since Start', 'Value']].groupby('Days Since Start').agg('mean').reset_index()
                 ax.plot(mean_df['Days Since Start'], mean_df['Value'], label=control_group_id, color='black', lw=2, alpha=0.7)
@@ -280,7 +281,7 @@ class InVivoAnalyzer:
             group_df = df[df['Group ID'] == group_id]
             for mouse in group_df['Animal ID'].unique():
                 mouse_df = df[df['Animal ID'] == mouse]
-                ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='black', alpha=0.1)
+                ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='red', alpha=0.1)
 
             mean_df = group_df[['Days Since Start', 'Value']].groupby('Days Since Start').agg('mean').reset_index()
             ax.plot(mean_df['Days Since Start'], mean_df['Value'], label=group_id, lw=2, alpha=0.7, color='red')
