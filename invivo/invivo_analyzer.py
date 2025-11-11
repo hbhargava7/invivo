@@ -6,6 +6,8 @@ from .io import *
 import os
 import re
 import datetime
+import warnings
+from warnings import warn
 
 import matplotlib.pyplot as plt
 
@@ -50,8 +52,10 @@ class InVivoAnalyzer:
         self.master_data = pd.concat([self.master_data, bodyweight_df])
 
         # Parse mortality data
-        mortality_df = parse_mortality_data(read_sheet_from_study_log_excel(self.data_path, "Data MO"))
-        self.master_data = pd.concat([self.master_data, mortality_df])
+        if 'Data MO' in sheet_names:
+
+            mortality_df = parse_mortality_data(read_sheet_from_study_log_excel(self.data_path, "Data MO"))
+            self.master_data = pd.concat([self.master_data, mortality_df])
     
         # Parse tumor volume data
         for sheet_name in tumor_volume_sheets:
@@ -67,7 +71,12 @@ class InVivoAnalyzer:
         # Validate Animal ID format
         pattern = r'^\d+-\d+$'
         if not self.master_data['Animal ID'].str.match(pattern).all():
-            raise ValueError('Animal ID column does not match the format "Integer-Integer"')
+            warn('Warning: There are animal IDs in the spreadsheet that do not match the format "Integer-Integer". Dropping those entires.')
+
+            # drop entries from `self.master_data` where `Animal ID` does not match the pattern
+            self.master_data = self.master_data[self.master_data['Animal ID'].str.match(pattern)]
+
+            # raise ValueError('Animal ID column does not match the format "Integer-Integer"')
         
         # Find the min date in the df
         self.min_date = self.master_data['Date'].min()
@@ -92,9 +101,13 @@ class InVivoAnalyzer:
         """
         Set the start date of the study.
         """
+        if isinstance(date, str):
+            date = datetime.datetime.strptime(date, '%Y-%m-%d')
+            warnings.warn('Date is a string, converting to datetime object')
+
         self.study_start_date = date
         self.master_data['Days Since Start'] = (self.master_data['Date'] - self.study_start_date).dt.days
-    
+
     def set_group_names(self, group_names: list[str]):
         """
         Set the names of the groups.
@@ -210,10 +223,22 @@ class InVivoAnalyzer:
         if fig is not None:
             return fig, ax
 
-    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None, figsize=(6, 5)):
+    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None, figsize=(6, 5), dates_to_plot:dict[str, datetime.datetime]=None):
         """
         Plot data by group.
 
+        Parameters
+        ----------
+        measurement_type: str
+            The type of measurement to plot. This should be one of observation types in `self.master_data['Data Type']`.
+        show_individual_traces: bool, optional
+            If True, the individual traces for each animal will be plotted.
+        ax: matplotlib.axes.Axes, optional
+            The axes to plot the data on. If None, a new figure and axes will be created.
+        figsize: tuple, optional
+            The size of the figure. If not provided, a default size will be used.
+        dates_to_plot: dict[str, datetime.datetime], optional
+            A dictionary of dates to plot. They keys are the annotations and the values are the dates of interest.
         """
         if ax is None:
             fig, ax = plt.subplots(figsize=figsize)
@@ -230,6 +255,10 @@ class InVivoAnalyzer:
             ax.plot(group_data['Days Since Start'], group_data['mean'], label=f'({group})', lw=4)
             ax.fill_between(group_data['Days Since Start'], group_data['mean'] - group_data['std'], group_data['mean'] + group_data['std'], alpha=0.1)
 
+        if dates_to_plot is not None:
+            for date_label, date in dates_to_plot.items():
+                ax.axvline(self.date_to_days_since_start(date), linestyle='--', label=date_label)
+
         ax.set_title(f'{measurement_type} by Group')
         ax.set_xlabel('Days Since Start')
         ax.set_ylabel(measurement_type)
@@ -237,67 +266,158 @@ class InVivoAnalyzer:
 
         if fig is not None:
             return fig, ax
-
-    def subplot_data_bygroup(self, measurement_type: str, control_group_id:str=None, figsize=None, individual_traces_for_control=True):
+        
+    def date_to_days_since_start(self, date: datetime.datetime) -> int:
         """
+        Convert a date to days since start.
+        """
+        if isinstance(date, str):
+            # YYYY-MM-DD format to datetime object
+            date = datetime.datetime.strptime(date, '%Y-%m-%d')
+
+        return (date - self.study_start_date).days
+
+    def subplot_data_bygroup(
+        self,
+        measurement_type: str,
+        control_group_id: str = None,
+        figsize=None,
+        individual_traces_for_control=False,
+        dates_to_plot: dict[str, datetime.datetime] = None,
+        control_group_subplot=True,
+        norm_to_first_measurement: bool = False,
+    ):
+        """
+        Plot data by group in a subplot.
+
+        Parameters
+        ----------
+        measurement_type: str
+            The type of measurement to plot. This should be one of observation types in `self.master_data['Data Type']`.
+        control_group_id: str, optional
+            The ID of the control group. If provided, the control group will be plotted in black.
+        figsize: tuple, optional
+            The size of the figure. If not provided, a default size will be used.
+        individual_traces_for_control: bool, optional
+            If True, the individual traces for the control group will be plotted.
+        dates_to_plot: dict[str, datetime.datetime], optional
+            A dictionary of dates to plot. Keys are annotations and values are the dates of interest.
+        control_group_subplot: bool, optional
+            If False, skips plotting an individual subplot for the control group.
+        norm_to_first_measurement: bool, optional
+            If True, normalize each mouse’s values by its first recorded value.
+            Default is False.
         """
 
-
-        df = self.master_data[self.master_data['Data Type'] == measurement_type]
+        df = self.master_data[self.master_data['Data Type'] == measurement_type].copy()
         groups_to_plot = df['Group ID'].unique()
 
-        if control_group_id is not None:
+        # --- Normalize to first measurement if requested ---
+        if norm_to_first_measurement:
+            df['Value'] = df.groupby('Animal ID')['Value'].transform(lambda x: x / x.iloc[0])
 
+        # --- Handle control group logic ---
+        if control_group_id is not None:
             if control_group_id not in groups_to_plot:
                 raise ValueError('Control group ID not found in the data')
 
-            # No control group, unique subplots for each group
-            groups_to_plot = groups_to_plot[groups_to_plot != control_group_id]
+            if not control_group_subplot:
+                groups_to_plot = groups_to_plot[groups_to_plot != control_group_id]
+            else:
+                groups_to_plot = [control_group_id] + [g for g in groups_to_plot if g != control_group_id]
 
+        # --- Figure setup ---
         if figsize is None:
-            figsize = (4*len(groups_to_plot), 4)
+            figsize = (4 * len(groups_to_plot), 4)
 
         fig, axs = plt.subplots(1, len(groups_to_plot), sharex=True, sharey=True, figsize=figsize)
 
-        control_df = None
-        if control_group_id is not None:
-            control_df = df[df['Group ID'] == control_group_id]
+        if len(groups_to_plot) == 1:
+            axs = [axs]  # Ensure iterable
 
+        control_df = df[df['Group ID'] == control_group_id] if control_group_id is not None else None
 
+        # --- Plotting loop ---
         for ax, group_id in zip(axs, groups_to_plot):
-
-            # Plot control if relevant
+            # Plot control traces if needed
             if control_group_id is not None:
                 if individual_traces_for_control:
                     for mouse in control_df['Animal ID'].unique():
-                        mouse_df = df[df['Animal ID'] == mouse]
-                        ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='black', alpha=0.1)
+                        mouse_df = control_df[control_df['Animal ID'] == mouse]
+                        ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='grey', alpha=0.8, lw=.25)
 
-                mean_df = control_df[['Days Since Start', 'Value']].groupby('Days Since Start').agg('mean').reset_index()
-                ax.plot(mean_df['Days Since Start'], mean_df['Value'], label=control_group_id, color='black', lw=2, alpha=0.7)
+                ctrl_stats = control_df.groupby('Days Since Start')['Value'].agg(['mean', 'sem']).reset_index()
+
+                # 1. Error bars only
+                ax.errorbar(
+                    ctrl_stats['Days Since Start'],
+                    ctrl_stats['mean'],
+                    yerr=ctrl_stats['sem'],
+                    fmt='none',               # no markers here
+                    ecolor='grey',
+                    elinewidth=1.0,
+                    capsize=2,
+                    capthick=1.0
+                )
+
+                # 2. Mean line + open-circle markers
+                ax.plot(
+                    ctrl_stats['Days Since Start'],
+                    ctrl_stats['mean'],
+                    color='grey',
+                    lw=3,
+                    marker='o',
+                    mfc='white', mec='grey', mew=2.5, ms=8   # thick edge, open circle
+                )
 
 
-            # Plot the group itself
+            # Add vertical reference lines if provided
+            if dates_to_plot is not None:
+                for date_label, date in dates_to_plot.items():
+                    ax.axvline(self.date_to_days_since_start(date), color='grey', linestyle='--', label=date_label)
+
+            # Plot current group traces
             group_df = df[df['Group ID'] == group_id]
             for mouse in group_df['Animal ID'].unique():
-                mouse_df = df[df['Animal ID'] == mouse]
-                ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='red', alpha=0.1)
+                mouse_df = group_df[group_df['Animal ID'] == mouse]
+                ax.plot(mouse_df['Days Since Start'], mouse_df['Value'], color='#d80032', alpha=0.8, lw=.25)
 
-            mean_df = group_df[['Days Since Start', 'Value']].groupby('Days Since Start').agg('mean').reset_index()
-            ax.plot(mean_df['Days Since Start'], mean_df['Value'], label=group_id, lw=2, alpha=0.7, color='red')
+            # mean_df = group_df[['Days Since Start', 'Value']].groupby('Days Since Start').mean().reset_index()
+            # ax.plot(mean_df['Days Since Start'], mean_df['Value'], label=group_id, lw=3, alpha=1, color='#d80032')
 
-            # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+            grp_stats = group_df.groupby('Days Since Start')['Value'].agg(['mean', 'sem']).reset_index()
+            ax.errorbar(
+                grp_stats['Days Since Start'],
+                grp_stats['mean'],
+                yerr=grp_stats['sem'],
+                fmt='none',               # no markers here
+                ecolor='#d80032',
+                elinewidth=1.0,           # thin error bars
+                capsize=2,
+                capthick=1.0
+            )
 
-            ax.set_title(f'{group_id}')
+            ax.plot(
+                grp_stats['Days Since Start'],
+                grp_stats['mean'],
+                color='#d80032',
+                lw=3,
+                marker='o',
+                mfc='white', mec='#d80032', mew=2.5, ms=8   # thick edge, open circle
+            )
+
+            # Titles and labels
+            title = f"{group_id} (Control)" if group_id == control_group_id else group_id
+            ax.set_title(title)
             ax.set_xlabel('Days Since Start')
-            ax.set_ylabel(measurement_type)
 
-            plt.tight_layout()
+            # Adjust y-axis label depending on normalization
+            y_label = measurement_type
+            if norm_to_first_measurement:
+                y_label += " (normalized to first measurement)"
+            ax.set_ylabel(y_label)
+
+        plt.tight_layout()
 
         if fig is not None:
-            return fig, axs 
-
-        
-
-
-
+            return fig, axs

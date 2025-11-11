@@ -1,7 +1,10 @@
-#!/bin/bash -l
+#!/usr/bin/env bash
+
+# Use conda
+source ~/miniforge3/etc/profile.d/conda.sh
 
 # Create the Conda environment
-conda env create -f environment.yml --force -v
+conda env create -f environment.yml -v
 
 # Activate the environment
 conda activate invivo
