@@ -13,8 +13,9 @@ import matplotlib.pyplot as plt
 
 class InVivoAnalyzer:
 
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, ignore_groups: list[int]=None):
         self.data_path = data_path
+        self.ignore_groups = ignore_groups
         
         # confirm that the file exists
         if not os.path.exists(self.data_path):
@@ -93,6 +94,11 @@ class InVivoAnalyzer:
         print('-'*80)
         print('Found the following groups with the following sizes:')
         print(self.groups_summary_df())
+
+        if self.ignore_groups is not None:
+            print('-'*80)
+            print('Dropping groups per `ignore_groups` parameter: %s' % self.ignore_groups)
+            self.master_data = self.master_data[~self.master_data['Group ID'].isin(self.ignore_groups)]
 
         print('You can assign names to the groups by calling `self.set_group_names()` with an ordered list of group names.')
         print('-'*80)
