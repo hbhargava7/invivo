@@ -6,3 +6,4 @@ matplotlib
 ipykernel
 pytest
 openpyxl
+xlrd

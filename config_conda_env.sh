@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Use conda
-source ~/miniforge3/etc/profile.d/conda.sh
+source "$(conda info --base)/etc/profile.d/conda.sh"
 
 # Create the Conda environment
 conda env create -f environment.yml -v
