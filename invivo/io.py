@@ -32,10 +32,13 @@ def parse_bodyweight_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Parse bodyweight data from a DataFrame.
 
-    Expect columns: "Animal ID", "Date", "Value", "Recorded Time", and "Entered by"
-
+    Expect columns: "Animal ID", "Date", "Value", "Recorded Time", and "Entered by".
+    New-format sheets use "Weight" instead of "Value"; both are accepted.
     """
     bodyweight_df = df.copy()
+
+    if 'Value' not in bodyweight_df.columns and 'Weight' in bodyweight_df.columns:
+        bodyweight_df = bodyweight_df.rename(columns={'Weight': 'Value'})
 
     bodyweight_df = bodyweight_df[["Animal ID", "Date", "Value", "Recorded Time", "Entered by"]]
 
@@ -57,8 +60,12 @@ def parse_mortality_data(df: pd.DataFrame) -> pd.DataFrame:
     Note that the Mortality data sheet contains entries only for mice that have died. So the presence of an entry for an
     animal indicates that the animal has died.
 
+    New-format sheets use "Mortality" instead of "Value"; both are accepted.
     """
     mortality_df = df.copy()
+
+    if 'Value' not in mortality_df.columns and 'Mortality' in mortality_df.columns:
+        mortality_df = mortality_df.rename(columns={'Mortality': 'Value'})
 
     mortality_df = mortality_df[["Animal ID", "Date", "Value", "Recorded Time", "Entered by"]]
 
@@ -85,8 +92,12 @@ def parse_tumor_volume_data(df: pd.DataFrame, tumor_name='TV') -> pd.DataFrame:
     tumor_name: str
         The name of the tumor (important in bilateral flank or other multi-tumor experiments)
 
+    New-format sheets use "Volume" instead of "Value"; both are accepted.
     """
     tumor_volume_df = df.copy()
+
+    if 'Value' not in tumor_volume_df.columns and 'Volume' in tumor_volume_df.columns:
+        tumor_volume_df = tumor_volume_df.rename(columns={'Volume': 'Value'})
 
     tumor_volume_df = tumor_volume_df[["Animal ID", "Date", "Value", "Recorded Time", "Entered by"]]
 

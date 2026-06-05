@@ -194,3 +194,4 @@ cython_debug/
 .cursorindexingignore
 .DS_Store
 *.svg
+/examples/example_2 (new studylog format)

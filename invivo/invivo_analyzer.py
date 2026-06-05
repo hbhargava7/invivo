@@ -35,10 +35,12 @@ class InVivoAnalyzer:
         if 'Data MO' in sheet_names:
             print('found mortality data in sheet `Data MO`')
 
-        # Look for sheets corresponding to tumor volume
+        # Look for sheets corresponding to tumor volume. Match `Data TV-<suffix>`
+        # (e.g. TV-R, TV-RF, TV-L, TV-LF) and skip the `Data (with Sex) TV-…`
+        # duplicates emitted by the new study log format.
         tumor_volume_sheets = []
         for sheet_name in sheet_names:
-            if 'TV' in sheet_name:
+            if re.fullmatch(r'Data TV-\S+', sheet_name):
                 print(f'found tumor volume data in sheet `{sheet_name}`')
                 tumor_volume_sheets.append(sheet_name)
 
@@ -289,6 +291,7 @@ class InVivoAnalyzer:
         self,
         measurement_type: str,
         control_group_id: str = None,
+        groups_to_plot: list = None,
         figsize=None,
         individual_traces_for_control=False,
         dates_to_plot: dict[str, datetime.datetime] = None,
@@ -304,6 +307,9 @@ class InVivoAnalyzer:
             The type of measurement to plot. This should be one of observation types in `self.master_data['Data Type']`.
         control_group_id: str, optional
             The ID of the control group. If provided, the control group will be plotted in black.
+        groups_to_plot: list, optional
+            If provided, only these Group IDs are plotted (in the order given). The control group, if
+            specified and `control_group_subplot=True`, is still prepended even if absent from this list.
         figsize: tuple, optional
             The size of the figure. If not provided, a default size will be used.
         individual_traces_for_control: bool, optional
@@ -318,7 +324,15 @@ class InVivoAnalyzer:
         """
 
         df = self.master_data[self.master_data['Data Type'] == measurement_type].copy()
-        groups_to_plot = df['Group ID'].unique()
+        available_groups = df['Group ID'].unique()
+
+        if groups_to_plot is None:
+            groups_to_plot = list(available_groups)
+        else:
+            missing = [g for g in groups_to_plot if g not in available_groups]
+            if missing:
+                raise ValueError(f'groups_to_plot contains Group IDs not found in the data: {missing}')
+            groups_to_plot = list(groups_to_plot)
 
         # --- Normalize to first measurement if requested ---
         if norm_to_first_measurement:
@@ -326,11 +340,11 @@ class InVivoAnalyzer:
 
         # --- Handle control group logic ---
         if control_group_id is not None:
-            if control_group_id not in groups_to_plot:
+            if control_group_id not in available_groups:
                 raise ValueError('Control group ID not found in the data')
 
             if not control_group_subplot:
-                groups_to_plot = groups_to_plot[groups_to_plot != control_group_id]
+                groups_to_plot = [g for g in groups_to_plot if g != control_group_id]
             else:
                 groups_to_plot = [control_group_id] + [g for g in groups_to_plot if g != control_group_id]
 
