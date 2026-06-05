@@ -5,5 +5,5 @@ name: invivo
 
 dependencies:
   # put python dependencies in `requirements.txt` and use the `config_conda_env.sh` script.
-  - python=3.12
+  - python=3.13
   - pip

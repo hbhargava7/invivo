@@ -130,6 +130,8 @@ class InVivoAnalyzer:
 
         for original_id, new_name in zip(original_group_ids, group_names):
             print('renaming group %s to %s' % (original_id, new_name))
+            # cast master data to object type
+            self.master_data = self.master_data.astype({'Group ID': 'object'})
             self.master_data.loc[self.master_data['Group ID'] == original_id, 'Group ID'] = new_name
         print('-'*80)
         print('The groups have been renamed to:')

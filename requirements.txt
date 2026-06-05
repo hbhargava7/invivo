@@ -7,3 +7,7 @@ ipykernel
 pytest
 openpyxl
 xlrd
+
+fonttools
+setuptools-scm
+watermark
