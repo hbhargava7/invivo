@@ -126,7 +126,12 @@ class InVivoAnalyzer:
 
         if len(group_names) != len(self.master_data['Group ID'].unique()):
             raise ValueError('Number of group names must match the number of groups')
-        
+
+        # Preserve the original studylog integer Group IDs so they remain accessible after renaming.
+        # Only snapshot on the first call so repeated set_group_names() calls don't overwrite the originals.
+        if 'Studylog Group ID' not in self.master_data.columns:
+            self.master_data['Studylog Group ID'] = self.master_data['Group ID']
+
         # Rename the groups in the master data
         original_group_ids = sorted(self.master_data['Group ID'].unique())
 
@@ -327,7 +332,7 @@ class InVivoAnalyzer:
         available_groups = df['Group ID'].unique()
 
         if groups_to_plot is None:
-            groups_to_plot = list(available_groups)
+            groups_to_plot = sorted(available_groups)
         else:
             missing = [g for g in groups_to_plot if g not in available_groups]
             if missing:
