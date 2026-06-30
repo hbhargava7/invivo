@@ -166,7 +166,7 @@ class InVivoAnalyzer:
         })
         return df
     
-    def plot_survival_curves(self, ax=None, fractional=False, figsize=(6, 5)):
+    def plot_survival_curves(self, ax=None, fractional=False, figsize=(6, 5), groups_to_plot: list = None, event_codes: list = None):
         """
         Plot the survival curves.
 
@@ -177,68 +177,118 @@ class InVivoAnalyzer:
         fractional: bool
             If True, the survival curves will be plotted as fractional survival (i.e. the proportion of animals surviving at each timepoint).
             If False, the survival curves will be plotted as the number of animals surviving at each timepoint.
+        groups_to_plot: list, optional
+            If provided, only these Group IDs are plotted (in the order given). If None, all groups are
+            plotted in their default order.
+        event_codes: list, optional
+            The Mortality-sheet `Value` codes (e.g. '1-TV', '4-Sc') that count as death events. If None
+            (default), every Mortality record counts as a death, regardless of code. When a list is
+            provided, animals whose only Mortality record(s) carry other codes are treated as censored:
+            they are removed from their group's at-risk cohort (denominator) rather than counted as dead.
+            The codes actually counted as deaths are printed on every call.
 
         """
         mortality_data = self.master_data[self.master_data['Data Type'] == 'Mortality']
 
-        df_survival = pd.DataFrame(columns=['Group', 'Timepoint', 'N Surviving'])
+        available_groups = self.master_data['Group ID'].unique()
+        if groups_to_plot is None:
+            groups_to_plot = list(available_groups)
+        else:
+            missing = [g for g in groups_to_plot if g not in available_groups]
+            if missing:
+                raise ValueError(f'groups_to_plot contains Group IDs not found in the data: {missing}')
+            groups_to_plot = list(groups_to_plot)
+
+        # Decide which Mortality codes count as death events. Default: every code counts.
+        if event_codes is None:
+            event_codes = list(mortality_data['Value'].unique())
+        else:
+            event_codes = list(event_codes)
+
+        event_mortality = mortality_data[mortality_data['Value'].isin(event_codes)]
+        event_animals = set(event_mortality['Animal ID'].unique())
+        animals_with_any_mortality = set(mortality_data['Animal ID'].unique())
+
+        # Report which codes were counted, restricted to the groups being plotted.
+        plotted_mortality = mortality_data[mortality_data['Group ID'].isin(groups_to_plot)]
+        code_counts = plotted_mortality['Value'].value_counts()
+        counted = {c: int(n) for c, n in code_counts.items() if c in event_codes}
+        censored = {c: int(n) for c, n in code_counts.items() if c not in event_codes}
+        print('plot_survival_curves: counting the following Mortality codes as death events: %s'
+              % (counted if counted else '(none)'))
+        if censored:
+            print('plot_survival_curves: treating these Mortality codes as censoring (animals dropped '
+                  'from the at-risk cohort, not counted as deaths): %s' % censored)
+        print('plot_survival_curves: pass `event_codes=[...]` to change which codes count as deaths.')
 
         all_timepoints = self.master_data['Days Since Start'].unique()
 
         data = []
 
-        for group_id in self.master_data['Group ID'].unique():
+        for group_id in groups_to_plot:
 
             group_data = self.master_data[self.master_data['Group ID'] == group_id]
+            group_animals = group_data['Animal ID'].unique()
+
+            # Censor animals whose only Mortality record(s) carry non-event codes by dropping them
+            # from this group's at-risk cohort. With the default event_codes (all codes), nothing is
+            # censored and the cohort is every animal in the group.
+            cohort = [a for a in group_animals
+                      if a in event_animals or a not in animals_with_any_mortality]
+
+            if len(cohort) == 0:
+                warn('Group %s has no animals left after censoring; skipping its survival curve.' % group_id)
+                continue
 
             for timepoint in all_timepoints:
-                n_alive_at_timepoint = 0
-
-                for animal_id in group_data['Animal ID'].unique():
-
-                    mortalities_to_date = mortality_data[mortality_data['Days Since Start'] <= timepoint]
-
-                    if animal_id not in mortalities_to_date['Animal ID'].unique():
-                        n_alive_at_timepoint += 1
+                dead_by_now = set(event_mortality[event_mortality['Days Since Start'] <= timepoint]['Animal ID'].unique())
+                n_alive_at_timepoint = sum(1 for a in cohort if a not in dead_by_now)
 
                 if fractional:
-                    data.append({'Group': group_id, 'Days Since Start': timepoint, 'Fraction Surviving': n_alive_at_timepoint / len(group_data['Animal ID'].unique())})
+                    data.append({'Group': group_id, 'Days Since Start': timepoint, 'Fraction Surviving': n_alive_at_timepoint / len(cohort)})
                 else:
                     data.append({'Group': group_id, 'Days Since Start': timepoint, 'N Surviving': n_alive_at_timepoint})
 
-        df_survival = pd.DataFrame(data)
+        value_col = 'Fraction Surviving' if fractional else 'N Surviving'
+        # Pass explicit columns so df_survival is well-formed even when every group was censored away.
+        df_survival = pd.DataFrame(data, columns=['Group', 'Days Since Start', value_col])
 
         if ax is None:
             fig, ax = plt.subplots(figsize=figsize)
-        
-        # Iterate over each group and plot the survival curve as a step plot
+        else:
+            fig = ax.get_figure()
+
+        # Iterate over each group and plot the survival curve as a step plot. Append the final
+        # (last-timepoint) surviving value to the legend label.
         for group in df_survival['Group'].unique():
             _df = df_survival[df_survival['Group'] == group]
+            final_value = _df.loc[_df['Days Since Start'].idxmax(), value_col]
             if fractional:
-                plt.step(_df['Days Since Start'], _df['Fraction Surviving'], where='post', label="%s" %  group)
+                label = '%s (%.2f)' % (group, final_value)
             else:
-                plt.step(_df['Days Since Start'], _df['N Surviving'], where='post', label="%s" %  group)
+                label = '%s (%d)' % (group, final_value)
+            ax.step(_df['Days Since Start'], _df[value_col], where='post', label=label)
 
         # Rotate the axis labels and set align to right
-        plt.xticks(rotation=45, ha='right')
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
 
-        # Add legend to the right via bbox
-        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        # Add legend to the right via bbox (only if at least one curve was drawn)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
         # Set labels and title
-        plt.xlabel('Days Since Study Start')
+        ax.set_xlabel('Days Since Study Start')
         if fractional:
-            plt.ylabel('Fraction Surviving')
+            ax.set_ylabel('Fraction Surviving')
         else:
-            plt.ylabel('N Surviving')
-        plt.ylim(bottom=0)
+            ax.set_ylabel('N Surviving')
+        ax.set_ylim(bottom=0)
 
-        plt.tight_layout()
+        fig.tight_layout()
 
-        if fig is not None:
-            return fig, ax
+        return fig, ax
 
-    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None, figsize=(6, 5), dates_to_plot:dict[str, datetime.datetime]=None):
+    def plot_data_bygroup(self, measurement_type: str, show_individual_traces:bool=False, ax=None, figsize=(6, 5), dates_to_plot:dict[str, datetime.datetime]=None, groups_to_plot: list = None):
         """
         Plot data by group.
 
@@ -247,28 +297,48 @@ class InVivoAnalyzer:
         measurement_type: str
             The type of measurement to plot. This should be one of observation types in `self.master_data['Data Type']`.
         show_individual_traces: bool, optional
-            If True, the individual traces for each animal will be plotted.
+            If True, the individual traces for each animal will be plotted (in the group's color).
         ax: matplotlib.axes.Axes, optional
             The axes to plot the data on. If None, a new figure and axes will be created.
         figsize: tuple, optional
             The size of the figure. If not provided, a default size will be used.
         dates_to_plot: dict[str, datetime.datetime], optional
             A dictionary of dates to plot. They keys are the annotations and the values are the dates of interest.
+        groups_to_plot: list, optional
+            If provided, only these Group IDs are plotted (in the order given). If None, all groups are
+            plotted in their default order.
         """
         if ax is None:
             fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = ax.get_figure()
 
-        df = self.master_data[self.master_data['Data Type'] == measurement_type]
+        df = self.master_data[self.master_data['Data Type'] == measurement_type].copy()
 
         # Cast the `Value` column to float
         df['Value'] = df['Value'].astype(float)
 
+        available_groups = df['Group ID'].unique()
+        if groups_to_plot is None:
+            groups_to_plot = list(available_groups)
+        else:
+            missing = [g for g in groups_to_plot if g not in available_groups]
+            if missing:
+                raise ValueError(f'groups_to_plot contains Group IDs not found in the data: {missing}')
+            groups_to_plot = list(groups_to_plot)
+
         grouped = df.groupby(['Group ID', 'Days Since Start'])['Value'].agg(['mean', 'std']).reset_index()
 
-        for group in df['Group ID'].unique():
+        for group in groups_to_plot:
             group_data = grouped[grouped['Group ID'] == group]
-            ax.plot(group_data['Days Since Start'], group_data['mean'], label=f'({group})', lw=4)
-            ax.fill_between(group_data['Days Since Start'], group_data['mean'] - group_data['std'], group_data['mean'] + group_data['std'], alpha=0.1)
+            line, = ax.plot(group_data['Days Since Start'], group_data['mean'], label=f'({group})', lw=4)
+            ax.fill_between(group_data['Days Since Start'], group_data['mean'] - group_data['std'], group_data['mean'] + group_data['std'], alpha=0.1, color=line.get_color())
+
+            if show_individual_traces:
+                group_animals = df[df['Group ID'] == group]
+                for animal_id in group_animals['Animal ID'].unique():
+                    animal_df = group_animals[group_animals['Animal ID'] == animal_id]
+                    ax.plot(animal_df['Days Since Start'], animal_df['Value'], color=line.get_color(), alpha=0.3, lw=0.5)
 
         if dates_to_plot is not None:
             for date_label, date in dates_to_plot.items():
@@ -279,8 +349,7 @@ class InVivoAnalyzer:
         ax.set_ylabel(measurement_type)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-        if fig is not None:
-            return fig, ax
+        return fig, ax
         
     def date_to_days_since_start(self, date: datetime.datetime) -> int:
         """
