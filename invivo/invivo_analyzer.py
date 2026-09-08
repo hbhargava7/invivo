@@ -68,18 +68,9 @@ class InVivoAnalyzer:
         # Move `Data Type` column to front
         self.master_data = self.master_data[['Data Type', *[col for col in self.master_data.columns if col != 'Data Type']]]
 
-        # Convert Animal ID to string
-        self.master_data['Animal ID'] = self.master_data['Animal ID'].astype(str)
-    
-        # Validate Animal ID format
-        pattern = r'^\d+-\d+$'
-        if not self.master_data['Animal ID'].str.match(pattern).all():
-            warn('Warning: There are animal IDs in the spreadsheet that do not match the format "Integer-Integer". Dropping those entires.')
-
-            # drop entries from `self.master_data` where `Animal ID` does not match the pattern
-            self.master_data = self.master_data[self.master_data['Animal ID'].str.match(pattern)]
-
-            # raise ValueError('Animal ID column does not match the format "Integer-Integer"')
+        # Validate Animal IDs and normalize Studylog's ``Group 01-002`` format
+        # to the canonical ``1-2`` form used throughout the analyzer.
+        self.master_data['Animal ID'] = normalize_animal_ids(self.master_data['Animal ID'])
         
         # Find the min date in the df
         self.min_date = self.master_data['Date'].min()

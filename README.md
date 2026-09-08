@@ -14,6 +14,9 @@ This notebook demonstrates the use of the `invivo` package to automatically anal
 
 ## Automatic ingestion of an Excel file exported from the study log
 
+Animal IDs may use either `1-2` or the Studylog-exported `Group 01-002`
+format. Group-prefixed IDs are normalized to `1-2` during ingestion.
+
 # embed image named `example_output.png`
 
 ![Example Output](examples/example_output_1.png)

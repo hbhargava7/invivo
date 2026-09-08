@@ -1,7 +1,59 @@
 # Copyright 2025 Hersh K. Bhargava (https://hershbhargava.com)
 # University of California, San Francisco
 
+import re
+
 import pandas as pd
+
+
+_CANONICAL_ANIMAL_ID_PATTERN = re.compile(r'^(\d+)-(\d+)$')
+_GROUP_PREFIXED_ANIMAL_ID_PATTERN = re.compile(r'^Group\s+(\d+)-(\d+)$', re.IGNORECASE)
+
+
+def normalize_animal_ids(animal_ids: pd.Series) -> pd.Series:
+    """Validate animal IDs and return them in canonical ``group-animal`` form.
+
+    Accepted input formats are ``1-2`` and the Studylog-exported
+    ``Group 01-002``. Group-prefixed IDs are converted to ``1-2`` so callers
+    can use the same identifiers regardless of which Studylog format produced
+    the workbook.
+
+    Raises
+    ------
+    ValueError
+        If any value does not match a supported format.
+    """
+    animal_ids = animal_ids.astype('string').str.strip()
+    canonical_matches = animal_ids.str.fullmatch(_CANONICAL_ANIMAL_ID_PATTERN, na=False)
+    group_prefixed_matches = animal_ids.str.fullmatch(_GROUP_PREFIXED_ANIMAL_ID_PATTERN, na=False)
+    valid_matches = canonical_matches | group_prefixed_matches
+
+    if not valid_matches.all():
+        invalid_ids = animal_ids[~valid_matches].drop_duplicates().tolist()
+        displayed_ids = ['<missing>' if pd.isna(value) else repr(value) for value in invalid_ids[:5]]
+        if len(invalid_ids) > 5:
+            displayed_ids.append(f'... and {len(invalid_ids) - 5} more')
+
+        invalid_row_count = int((~valid_matches).sum())
+        raise ValueError(
+            f'Found {invalid_row_count} record(s) with incompatible Animal ID values: '
+            f'{", ".join(displayed_ids)}. Accepted formats are "<group>-<animal>" '
+            f'(for example, "1-2") and "Group <group>-<animal>" '
+            f'(for example, "Group 01-002"); both portions must contain digits only. '
+            f'Correct the Animal ID values in the study log and try again. No records were dropped.'
+        )
+
+    normalized_ids = animal_ids.copy()
+    prefixed_parts = animal_ids[group_prefixed_matches].str.extract(
+        _GROUP_PREFIXED_ANIMAL_ID_PATTERN
+    )
+    normalized_ids.loc[group_prefixed_matches] = (
+        prefixed_parts[0].astype(int).astype(str)
+        + '-'
+        + prefixed_parts[1].astype(int).astype(str)
+    )
+    return normalized_ids
+
 
 def get_excel_sheet_names(path: str) -> list[str]:
     """
@@ -112,7 +164,7 @@ def parse_tumor_volume_data(df: pd.DataFrame, tumor_name='TV') -> pd.DataFrame:
 
 def extract_group_id(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Extract Group ID from Animal ID by taking the first integer before the hyphen.
+    Normalize Animal IDs and extract the integer group portion before the hyphen.
     
     Args:
         df: DataFrame containing an "Animal ID" column
@@ -121,12 +173,6 @@ def extract_group_id(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with added "Group ID" column
     """
     df = df.copy()
+    df['Animal ID'] = normalize_animal_ids(df['Animal ID'])
     df['Group ID'] = df['Animal ID'].str.split('-').str[0].astype(int)
     return df
-
-    
-    
-
-    
-
-    
